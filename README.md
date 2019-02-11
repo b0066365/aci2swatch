@@ -31,8 +31,7 @@ Create the Config-File
 ``` INI
 [GLOBAL]
 UPDATE_INTERVAL=60
-LOG_FILE=/mnt/scripts/swatch/log/aci2swatch.log
-LOG_DIR=/mnt/scripts/swatch/log
+LOG_FILE=/home/app/log/aci2swatch.log
 # Levels: debug, info, warning, critical, error, | Default: warning
 LOG_LEVEL=info
 
