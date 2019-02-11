@@ -38,17 +38,17 @@ import logging
 import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-def APIC_Login(apic_ip, apic_user, apic_password, logging):
+def APIC_Login(apic, logging):
     #print "APIC Login..."
 
     # create credentials structure
     apic_data = '{"aaaUser":{"attributes":{"name":"","pwd":""}}}'
     apic_data=json.loads(apic_data)
-    apic_data["aaaUser"]["attributes"]["name"] = apic_user
-    apic_data["aaaUser"]["attributes"]["pwd"] = apic_password
+    apic_data["aaaUser"]["attributes"]["name"] = apic["USER"]
+    apic_data["aaaUser"]["attributes"]["pwd"] = apic["PASSWORD"]
 
     # log in to API
-    post_response = requests.post("https://"+str(apic_ip)+"/api/aaaLogin.json", data=json.dumps(apic_data), verify=False)
+    post_response = requests.post("https://"+str(apic["IP"])+"/api/aaaLogin.json", data=json.dumps(apic_data), verify=False)
     if post_response.status_code == 200:
       # get token from login response structure
       auth = json.loads(post_response.text)
@@ -74,13 +74,13 @@ def APIC_Get(get_url,apic_ip,cookies, logging):
         Logger(logging, "debug", "APIC GET succesful. "+get_response.text)
         return get_error
 
-def GetGlobalEndpoints(apic_ip, apic_user, apic_password, logging):
+def GetGlobalEndpoints(apic, logging):
     cookies = {}
     ACIEndPoints = []
     ACIEPGs = []
-    cookies['APIC-Cookie'] = APIC_Login(apic_ip, apic_user, apic_password, logging)
+    cookies['APIC-Cookie'] = APIC_Login(apic, logging)
 
-    get_data = APIC_Get('/node/class/fvCEp.json',apic_ip,cookies, logging)
+    get_data = APIC_Get('/node/class/fvCEp.json',APIC["IP"],cookies, logging)
 
     C=1
     while C <= int(get_data["totalCount"]):
@@ -180,7 +180,7 @@ def CheckExistingGroups(HostGroup, swatch,logging):
     if ExistingHostGroup["name"] == HostGroup:
       return ExistingHostGroup["id"]
 
-def Epg2Swatch(epg_list, swatch, logging):
+def Epg2Swatch(epg_list, swatch, apic, logging):
   # Get Tenant ID
   result = SWATCH_Get("/sw-reporting/v1/tenants", swatch, logging)
   swatch["DomainID"] = result["data"][0]["id"]
@@ -195,9 +195,9 @@ def Epg2Swatch(epg_list, swatch, logging):
 
   # Build Payload to create APIC Parent Group
   payload = [{
-    "name": "APIC_"+APIC_IP.upper(),
+    "name": "APIC_"+apic["IP"].upper(),
     "location": "INSIDE",
-    "description": "Host Groups from APIC: "+APIC_IP.upper(),
+    "description": "Host Groups from APIC: "+apic["IP"].upper(),
     "hostBaselines": swatch["HOSTBASELINES"],
     "suppressExcludedServices": True,
     "inverseSuppression": False,
@@ -211,7 +211,7 @@ def Epg2Swatch(epg_list, swatch, logging):
 
   # If failed, check if group already exists
   if "errors" in result:
-    swatch["APICHostGroupID"] = CheckExistingGroups("APIC_"+APIC_IP.upper(), swatch, logging)
+    swatch["APICHostGroupID"] = CheckExistingGroups("APIC_"+apic["IP"].upper(), swatch, logging)
   else:
     swatch["APICHostGroupID"]= result["data"][0]["id"]
 
@@ -224,7 +224,7 @@ def Epg2Swatch(epg_list, swatch, logging):
     payload = [{
       "name": "",
       "location": "INSIDE",
-      "description": "Host Group from APIC: "+APIC_IP.upper(),
+      "description": "Host Group from APIC: "+apic["IP"].upper(),
       "ranges": [],
       "hostBaselines": swatch["HOSTBASELINES"],
       "suppressExcludedServices": True,
@@ -268,16 +268,18 @@ if __name__ == "__main__":
   while i == 0 :
     LOG_LEVEL="debug"
     SWATCH={}
+    APIC={}
+    GLOBAL={}
 
     config = ConfigParser.SafeConfigParser(allow_no_value=True)
-    config.read('/mnt/scripts/swatch/config.cfg')
-    UPDATE_INTERVAL = config.get('GLOBAL', 'UPDATE_INTERVAL')
-    LOG_DIR = config.get('GLOBAL', 'LOG_DIR')
-    LOG_FILE = config.get('GLOBAL', 'LOG_FILE')
-    LOG_LEVEL = config.get('GLOBAL', 'LOG_LEVEL')
-    APIC_IP = config.get('APIC', 'APIC_IP')
-    APIC_USER = config.get('APIC', 'APIC_USER')
-    APIC_PASSWORD = base64.b64decode(config.get('APIC', 'APIC_PASSWORD'))
+    config.read('/home/app/src/config.cfg')
+    GLOBAL["UPDATE_INTERVAL"] = config.get('GLOBAL', 'UPDATE_INTERVAL')
+    #GLOBAL["LOG_DIR"] = config.get('GLOBAL', 'LOG_DIR')
+    GLOBAL["LOG_FILE"] = config.get('GLOBAL', 'LOG_FILE')
+    GLOBAL["LOG_LEVEL"] = config.get('GLOBAL', 'LOG_LEVEL')
+    APIC["IP"] = config.get('APIC', 'APIC_IP')
+    APIC["USER"] = config.get('APIC', 'APIC_USER')
+    APIC["PASSWORD"] = base64.b64decode(config.get('APIC', 'APIC_PASSWORD'))
 
     SWATCH["IP"] = config.get('SWATCH', 'SWATCH_IP')
     SWATCH["USER"] = config.get('SWATCH', 'SWATCH_USER')
@@ -288,33 +290,38 @@ if __name__ == "__main__":
 
 
     if LOG_LEVEL == "debug":
-      logging.basicConfig(filename=LOG_FILE,format='%(asctime)s %(levelname)s %(message)s', datefmt='%Y-%m-%d %I:%M:%S %p', level=logging.DEBUG)
+      logging.basicConfig(filename=GLOBAL["LOG_FILE"],format='%(asctime)s %(levelname)s %(message)s', datefmt='%Y-%m-%d %I:%M:%S %p', level=logging.DEBUG)
     elif LOG_LEVEL == "info":
-      logging.basicConfig(filename=LOG_FILE,format='%(asctime)s %(levelname)s %(message)s', datefmt='%Y-%m-%d %I:%M:%S %p', level=logging.INFO)
+      logging.basicConfig(filename=GLOBAL["LOG_FILE"],format='%(asctime)s %(levelname)s %(message)s', datefmt='%Y-%m-%d %I:%M:%S %p', level=logging.INFO)
     else:
-      logging.basicConfig(filename=LOG_FILE,format='%(asctime)s %(levelname)s %(message)s', datefmt='%Y-%m-%d %I:%M:%S %p', level=logging.WARNING)
+      logging.basicConfig(filename=GLOBAL["LOG_FILE"],format='%(asctime)s %(levelname)s %(message)s', datefmt='%Y-%m-%d %I:%M:%S %p', level=logging.WARNING)
 
     epg_config = ConfigParser.SafeConfigParser(allow_no_value=True)
 
-    Logger(logging, "info", "Using: APIC IP: "+APIC_IP+", APIC User: "+APIC_USER+", SWATCH IP: "+SWATCH["IP"]+", SWATCH User: "+SWATCH["USER"]+", INTERVAL: "+UPDATE_INTERVAL)
-    Logger(logging, "info", "Current Log-Level: "+LOG_LEVEL)
+    Logger(logging, "info", "Using: APIC IP: "+APIC["IP"]+", APIC User: "+APIC["USER"]+", SWATCH IP: "+SWATCH["IP"]+", SWATCH User: "+SWATCH["USER"]+", INTERVAL: "+GLOBAL["UPDATE_INTERVAL"])
+    Logger(logging, "info", "Current Log-Level: "+GLOBAL["LOG_LEVEL"])
 
     # APIC
-    aci_endpoints, aci_epgs = GetGlobalEndpoints(APIC_IP, APIC_USER, APIC_PASSWORD, logging)
+    aci_endpoints, aci_epgs = GetGlobalEndpoints(APIC, logging)
     epg_config =  ACI2Config(aci_endpoints, epg_config, logging)
 
-    with open('/mnt/scripts/swatch/epgs.cfg', 'wb') as epg_configfile:
+    with open('/home/app/src/epgs.cfg', 'wb') as epg_configfile:
       epg_config.write(epg_configfile)
 
     # SWATCH
     epg_list = ConfigParser.SafeConfigParser(allow_no_value=True)
-    epg_list.read('/mnt/scripts/swatch/epgs.cfg')
+    epg_list.read('/home/app/src/epgs.cfg')
 
     SWATCH["COOKIE"] = SWATCH_Login(SWATCH["IP"],SWATCH["USER"],SWATCH["PASSWORD"],logging)
-    Epg2Swatch(epg_list, SWATCH, logging)
+    Epg2Swatch(epg_list, SWATCH, APIC, logging)
 
+
+    # Clean up
     SWATCH={}
-    print "Sleeping for "+UPDATE_INTERVAL+"s..."
-    Logger(logging, "info", "Sleeping for "+UPDATE_INTERVAL+"s...")
+    APIC={}
+    GLOBAL={}
 
-    time.sleep(int(UPDATE_INTERVAL))
+    # Sleep
+    print "Sleeping for "+GLOBAL["UPDATE_INTERVAL"]+"s..."
+    Logger(logging, "info", "Sleeping for "+GLOBAL["UPDATE_INTERVAL"]+"s...")
+    time.sleep(int(GLOBAL["UPDATE_INTERVAL"]))
