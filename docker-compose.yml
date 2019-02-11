@@ -1,0 +1,9 @@
+version: '3'
+services:
+  aci2swatch:
+    container_name: aci2swatch_objects
+    image: b0066365/aci2fmc:v0.1
+    restart: always
+    volumes:
+    - .:/mnt/scripts/swatch
+    command: python /mnt/scripts/swatch/aci2swatch.py
