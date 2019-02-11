@@ -63,16 +63,16 @@ def APIC_Login(apic, logging):
 
 def APIC_Get(get_url,apic_ip,cookies, logging):
     get_response = requests.get("https://"+str(apic_ip)+"/api"+str(get_url), cookies=cookies,verify=False)
-    get_error = json.loads(get_response.text)
+    get_result = json.loads(get_response.text)
 
     # Catching Error-Message when something went wrong:
-    if get_error['totalCount'] <= "0":
+    if get_result['totalCount'] <= "0":
         print "ERR: "+ json.dumps(get_response.text)
         Logger(logging, "error", "APIC "+get_response.text)
     else:
         #print "OK"
         Logger(logging, "debug", "APIC GET succesful. "+get_response.text)
-        return get_error
+        return get_result
 
 def GetGlobalEndpoints(apic, logging):
     cookies = {}
@@ -91,7 +91,7 @@ def GetGlobalEndpoints(apic, logging):
       C+=1
 
     #print "Total ACI EndPoints: " + get_data["totalCount"]
-    Logger(logging, "info", "APIC EndPoints. "+get_data["totalCount"])
+    Logger(logging, "info", "APIC EndPoints: "+get_data["totalCount"])
 
     return ACIEndPoints, ACIEPGs
 
@@ -148,30 +148,42 @@ def SWATCH_Login(swatch_ip, swatch_user, swatch_password, logging):
 
 def SWATCH_Get(get_url, swatch, logging):
     get_response = requests.get("https://"+str(swatch["IP"])+str(get_url), cookies=swatch["COOKIE"],verify=False)
-    get_error = json.loads(get_response.text)
+    get_result = json.loads(get_response.text)
 
     # Catching Error-Message when something went wrong:
-    if len(get_error['data']) < 1:
-        print "ERR: "+ json.dumps(get_response.text)
-        Logger(logging, "error", "SWATCH "+get_response.text)
-    else:
+    if get_response.status_code == 200:
         #print "OK"
         Logger(logging, "debug", "SWATCH GET succesful. "+get_response.text)
-        return get_error
+        return get_result
+    else:
+        print "ERR:"+str(get_response.status_code)+": "+json.dumps(get_response.text)
+        Logger(logging, "error", "SWATCH "+get_response.text)
+        
 
 def SWATCH_Post(get_url, payload, swatch, logging):
     headers = {'Content-Type': "application/json"}
     post_response = requests.post("https://"+str(swatch["IP"])+str(get_url), headers=headers, json=payload, cookies=swatch["COOKIE"],verify=False)
-    post_error = json.loads(post_response.text)
+    post_result = json.loads(post_response.text)
 
-    return post_error
+    if post_response.status_code == 200:
+        return post_result
+    elif post_response.status_code == 400:
+        return post_result
+    else:
+        print "ERR:"+str(post_response.status_code)+": "+json.dumps(post_response.text)
+        Logger(logging, "error", "SWATCH "+post_response.text)
+        return post_result
 
 def SWATCH_Put(url, payload, swatch, logging):
     headers = {'Content-Type': "application/json"}
-    post_response = requests.put("https://"+str(swatch["IP"])+str(url), headers=headers, json=payload, cookies=swatch["COOKIE"],verify=False)
-    post_error = json.loads(post_response.text)
-
-    return post_error
+    put_response = requests.put("https://"+str(swatch["IP"])+str(url), headers=headers, json=payload, cookies=swatch["COOKIE"],verify=False)
+    put_result = json.loads(put_response.text)
+    if put_response.status_code == 200:
+        return put_result
+    else:
+        print "ERR:"+str(put_response.status_code)+": "+json.dumps(put_response.text)
+        Logger(logging, "error", "SWATCH "+put_response.text)
+        return put_result
 
 def CheckExistingGroups(HostGroup, swatch,logging):
   result = SWATCH_Get("/smc-configuration/rest/v1/tenants/"+str(swatch["DomainID"])+"/tags", swatch, logging)
@@ -188,6 +200,8 @@ def Epg2Swatch(epg_list, swatch, apic, logging):
 
   # Get Existing HostGroups to find Parent HostGroup ID
   result = SWATCH_Get("/smc-configuration/rest/v1/tenants/"+str(swatch["DomainID"])+"/tags", swatch, logging)
+  Logger(logging, "info", "SWATCH HostGroups: "+str(len(result["data"])))
+
 
   for ExistingHostGroup in result["data"]:
     if ExistingHostGroup["name"] == swatch["PARENTGROUP"]:
@@ -218,7 +232,7 @@ def Epg2Swatch(epg_list, swatch, apic, logging):
   #print swatch["APICHostGroupID"]
 
     
-
+  Logger(logging, "info", "EPGs in File: "+str(len(epg_list.sections())))
   for NewSection in epg_list.sections():
     # Build Payload to create APIC Parent Group
     payload = [{
@@ -266,10 +280,10 @@ if __name__ == "__main__":
   print "Starting..."
   i = 0
   while i == 0 :
-    LOG_LEVEL="debug"
     SWATCH={}
     APIC={}
     GLOBAL={}
+    GLOBAL["LOG_LEVEL"] = "debug"
 
     config = ConfigParser.SafeConfigParser(allow_no_value=True)
     config.read('/home/app/src/config.cfg')
@@ -289,9 +303,9 @@ if __name__ == "__main__":
     SWATCH["HOSTBASELINES"] = config.get('SWATCH', 'SWATCH_HOSTBASELINES')
 
 
-    if LOG_LEVEL == "debug":
+    if GLOBAL["LOG_LEVEL"] == "debug":
       logging.basicConfig(filename=GLOBAL["LOG_FILE"],format='%(asctime)s %(levelname)s %(message)s', datefmt='%Y-%m-%d %I:%M:%S %p', level=logging.DEBUG)
-    elif LOG_LEVEL == "info":
+    elif GLOBAL["LOG_LEVEL"] == "info":
       logging.basicConfig(filename=GLOBAL["LOG_FILE"],format='%(asctime)s %(levelname)s %(message)s', datefmt='%Y-%m-%d %I:%M:%S %p', level=logging.INFO)
     else:
       logging.basicConfig(filename=GLOBAL["LOG_FILE"],format='%(asctime)s %(levelname)s %(message)s', datefmt='%Y-%m-%d %I:%M:%S %p', level=logging.WARNING)
@@ -318,10 +332,10 @@ if __name__ == "__main__":
 
     # Clean up
     SWATCH={}
-    APIC={}
-    GLOBAL={}
+    APIC={}    
 
     # Sleep
     print "Sleeping for "+GLOBAL["UPDATE_INTERVAL"]+"s..."
     Logger(logging, "info", "Sleeping for "+GLOBAL["UPDATE_INTERVAL"]+"s...")
     time.sleep(int(GLOBAL["UPDATE_INTERVAL"]))
+    GLOBAL={}
