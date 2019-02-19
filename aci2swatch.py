@@ -162,6 +162,7 @@ def SWATCH_Get(get_url, swatch, logging):
 
 def SWATCH_Post(get_url, payload, swatch, logging):
     headers = {'Content-Type': "application/json"}
+    #print payload
     post_response = requests.post("https://"+str(swatch["IP"])+str(get_url), headers=headers, json=payload, cookies=swatch["COOKIE"],verify=False)
     post_result = json.loads(post_response.text)
 
@@ -193,6 +194,8 @@ def CheckExistingGroups(HostGroup, swatch,logging):
       return ExistingHostGroup["id"]
 
 def Epg2Swatch(epg_list, swatch, apic, logging):
+  ACITenants = []
+
   # Get Tenant ID
   result = SWATCH_Get("/sw-reporting/v1/tenants", swatch, logging)
   swatch["DomainID"] = result["data"][0]["id"]
@@ -224,6 +227,8 @@ def Epg2Swatch(epg_list, swatch, apic, logging):
   result = SWATCH_Post("/smc-configuration/rest/v1/tenants/"+str(swatch["DomainID"])+"/tags", payload, swatch, logging)
 
   # If failed, check if group already exists
+  
+
   if "errors" in result:
     swatch["APICHostGroupID"] = CheckExistingGroups("APIC_"+apic["IP"].upper(), swatch, logging)
   else:
@@ -231,10 +236,47 @@ def Epg2Swatch(epg_list, swatch, apic, logging):
 
   #print swatch["APICHostGroupID"]
 
+  for NewSection in epg_list.sections():
+    NewSection = NewSection.split("_AP-")
+    if NewSection[0] not in ACITenants:
+      ACITenants.append(NewSection[0])
+
+  print ACITenants
+
+  # Build Payload to create APIC Parent Group
+  for ACITenant in ACITenants:
+    payload = [{
+      "name": ACITenant.upper(),
+      "location": "INSIDE",
+      "description": "Host Groups from APIC: "+apic["IP"].upper(),
+      "hostBaselines": swatch["HOSTBASELINES"],
+      "suppressExcludedServices": True,
+      "inverseSuppression": False,
+      "hostTrap": False,
+      "sendToCta": False,
+      "parentId": swatch["APICHostGroupID"]
+    }]
+
+    # Create APIC Tenant Group
+    result = SWATCH_Post("/smc-configuration/rest/v1/tenants/"+str(swatch["DomainID"])+"/tags", payload, swatch, logging)
+  
+    print result
+    # If failed, check if group already exists
+    if "errors" in result:
+      swatch["APICTenantGroupID"] = CheckExistingGroups(ACITenant.upper(), swatch, logging)
+    else:
+      swatch["APICTenantGroupID"]= result["data"][0]["id"]
+
     
   Logger(logging, "info", "EPGs in File: "+str(len(epg_list.sections())))
   for NewSection in epg_list.sections():
     # Build Payload to create APIC Parent Group
+    
+    Tenants = NewSection.split("_AP-")
+    swatch["APICTenantGroupID"] = CheckExistingGroups(Tenants[0].upper(), swatch, logging)
+    #print swatch["APICTenantGroupID"]
+
+
     payload = [{
       "name": "",
       "location": "INSIDE",
@@ -245,10 +287,10 @@ def Epg2Swatch(epg_list, swatch, apic, logging):
       "inverseSuppression": False,
       "hostTrap": False,
       "sendToCta": False,
-      "parentId": swatch["APICHostGroupID"]
+      "parentId": swatch["APICTenantGroupID"]
     }] 
 
-    payload[0]["name"] = NewSection
+    payload[0]["name"] = Tenants[1]
     
     for EndPoint in epg_list.items(NewSection):
       payload[0]["ranges"].append(EndPoint[0])
@@ -257,7 +299,7 @@ def Epg2Swatch(epg_list, swatch, apic, logging):
     result = SWATCH_Post("/smc-configuration/rest/v1/tenants/"+str(swatch["DomainID"])+"/tags", payload, swatch, logging)
     if "errors" in result:
       ExistingID=0
-      ExistingID = CheckExistingGroups(NewSection, swatch, logging)
+      ExistingID = CheckExistingGroups(Tenants[1], swatch, logging)
       if ExistingID !=0:
         payload[0]["id"]= ExistingID
         result = SWATCH_Put("/smc-configuration/rest/v1/tenants/"+str(swatch["DomainID"])+"/tags", payload, swatch, logging)
