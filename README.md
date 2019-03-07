@@ -21,7 +21,7 @@ Clone the Repo
 ```git clone https://github.com/b0066365/aci2swatch.git```
 
 Move to the directory
-```cd aci2fmc```
+```cd aci2swatch```
 
 ## Config-File
 
